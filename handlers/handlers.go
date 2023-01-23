@@ -1,26 +1,32 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/applied-concurrency-in-go/models"
 	"github.com/applied-concurrency-in-go/repo"
 	"github.com/gorilla/mux"
 )
 
+// handler holds all the dependencies required for server requests
 type handler struct {
 	repo repo.Repo
 	once sync.Once
 }
+// Handler is the interface we expose to outside packages
 type Handler interface {
 	Index(w http.ResponseWriter, r *http.Request)
 	ProductIndex(w http.ResponseWriter, r *http.Request)
 	OrderShow(w http.ResponseWriter, r *http.Request)
 	OrderInsert(w http.ResponseWriter, r *http.Request)
 	Close(w http.ResponseWriter, r *http.Request)
+	Stats(w http.ResponseWriter, r *http.Request)
+	OrderReverse(w http.ResponseWriter, r *http.Request)
 }
 
 func New() (Handler, error) {
@@ -34,7 +40,7 @@ func New() (Handler, error) {
 	return &h, nil
 }
 
-// Index returns a simple hello response for the homepage
+// Index returns a simple welcome response for the homepage
 func (h *handler) Index(w http.ResponseWriter, r *http.Request) {
 	// Send an HTTP status & a hardcoded message
 	writeResponse(w, http.StatusOK, "Welcome to the Orders App!", nil)
@@ -46,7 +52,7 @@ func (h *handler) ProductIndex(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, h.repo.GetAllProducts(), nil)
 }
 
-// OrderShow fetches and displays one selected product
+// OrderShow fetches and displays one existing order
 func (h *handler) OrderShow(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orderId := vars["orderId"]
@@ -81,6 +87,32 @@ func (h *handler) OrderInsert(w http.ResponseWriter, r *http.Request) {
 func (h *handler) Close(w http.ResponseWriter, r *http.Request) {
 	h.invokeClose()
 	writeResponse(w, http.StatusOK, "The Orders App is now closed!", nil)
+}
+
+// Stats outputs order statistics from the repo
+func (h *handler) Stats(w http.ResponseWriter, r *http.Request) {
+	reqCtx := r.Context()
+	ctx, cancel := context.WithTimeout(reqCtx, 600*time.Millisecond)
+	defer cancel()
+	stats, err := h.repo.GetOrderStats(ctx)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+	writeResponse(w, http.StatusOK, stats, nil)
+}
+
+// OrderReverse fetches and displays one selected product
+func (h *handler) OrderReverse(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	orderId := vars["orderId"]
+	order, err := h.repo.RequestReversal(orderId)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, nil, err)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, order, nil)
 }
 
 func (h *handler) invokeClose() {
